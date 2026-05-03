@@ -23,109 +23,128 @@
 #include <systemc.h>
 
 SC_MODULE(test_cpu) {
-  const int CLOCK_SIZE_NS = 100;
-  sc_signal<bool> clk;
-  sc_signal<bool> vcc, earth;
-  sc_signal<sc_int<32>> zero;
+  // --- Sinais Globais e de Clock ---
+  const int CLOCK_SIZE_NS = 100; // Constante para o período do clock em nanosegundos.
+  sc_signal<bool> clk;           // Sinal de clock principal que sincroniza todo o processador.
+  sc_signal<bool> vcc, earth;    // Sinais de alimentação ('1' lógico) e terra ('0' lógico) para entradas constantes.
+  sc_signal<sc_int<32>> zero;    // Sinal constante com valor 0 de 32 bits.
 
-  // Primeiro estágio
-  reg<32> pc{"pc"};
-  instruction_memory mem_ins{"mem_ins"};
-  adder inc{"inc"};
-  sc_signal<sc_uint<32>> fourConstant, pcCurrValue, palavra;
-  sc_signal<sc_uint<32>> inc_result_out;
-  sc_signal<bool> resetPc;
+  // --- Primeiro Estágio (IF - Busca de Instrução) ---
+  reg<32> pc{"pc"};                                  // O registrador Contador de Programa (PC).
+  instruction_memory mem_ins{"mem_ins"};             // Módulo da memória de instruções.
+  adder inc{"inc"};                                  // Somador para calcular PC + 4.
+  sc_signal<sc_uint<32>> fourConstant;               // Sinal constante com o valor 4.
+  sc_signal<sc_uint<32>> pcCurrValue;                // Saída do registrador PC, contendo o endereço da instrução atual.
+  sc_signal<sc_uint<32>> palavra;                    // A instrução de 32 bits lida da memória de instruções.
+  sc_signal<sc_uint<32>> inc_result_out;             // Resultado do somador (PC + 4).
+  sc_signal<bool> resetPc;                           // Sinal para resetar o PC.
 
-  // Registradores IF/ID
-  if_id bar_if_id{"bar_if_id"};
-    sc_signal<sc_uint<32>> ifid_pc_saida, ifid_inst_saida;
-    sc_signal<sc_uint<5>> read1, read2, write1;
-    sc_signal<sc_int<16>> immediate;
-    sc_signal<sc_uint<26>> absolute;
+  // --- Registradores de Pipeline IF/ID ---
+  if_id bar_if_id{"bar_if_id"};                      // Módulo do registrador de pipeline entre os estágios IF e ID.
+  sc_signal<sc_uint<32>> ifid_pc_saida;              // Saída do PC do registrador IF/ID (PC da instrução atual no estágio ID).
+  sc_signal<sc_uint<32>> ifid_inst_saida;            // Saída da instrução do registrador IF/ID.
+  sc_signal<sc_uint<5>> read1, read2, write1;        // Endereços dos registradores de leitura (rs, rt) e escrita (rd) decodificados da instrução.
+  sc_signal<sc_int<16>> immediate;                   // Valor imediato de 16 bits extraído da instrução.
+  sc_signal<sc_uint<26>> absolute;                   // Endereço absoluto de 26 bits para instruções de desvio (jump).
 
+  // --- Segundo Estágio (ID - Decodificação e Busca de Registradores) ---
+  register_bank b_reg{"b_reg"};                      // Módulo do banco de registradores.
+  control_unit controle{"control"};                  // Módulo da unidade de controle principal.
+  signal_extend sign_ext{"sign_ext"};                // Módulo para extensão de sinal do imediato.
+  hazard_detection_unit detec_conflitos{"detec_conflitos"}; // Unidade de detecção de hazards de dados (conflitos).
+  mux_control mux_sinais_controle{"mux_sinais_controle"};   // MUX para zerar os sinais de controle em caso de stall (bolha).
+  mux2<sc_uint<5>> mux_reg_sel{"mux_reg_sel"};       // MUX para selecionar o registrador de destino (rd ou rt).
+  sc_signal<sc_uint<5>> selected_read2;              // Saída do mux_reg_sel, o endereço do registrador de destino para a instrução atual.
+  sc_signal<bool> pcWrite, if_id_write;              // Sinais da unidade de hazard: pcWrite para o PC, if_id_write para inserir uma bolha.
+  sc_signal<bool> mux_controle_sel;                  // Sinal de seleção para o mux_sinais_controle, vindo da unidade de hazard.
+  sc_signal<sc_int<32>> ext_immidiate;               // Valor imediato estendido para 32 bits.
+  sc_signal<sc_int<32>> b_reg_result1, b_reg_result2; // Valores lidos do banco de registradores (dados de rs e rt).
 
-  // Segundo estágio
-  register_bank b_reg{"b_reg"};
-  control_unit controle{"control"};
-  signal_extend sign_ext{"sign_ext"};
-  hazard_detection_unit detec_conflitos{"detec_conflitos"};
-  mux_control mux_sinais_controle{"mux_sinais_controle"};
-  mux2<sc_uint<5>> mux_reg_sel{"mux_reg_sel"};
-  sc_signal<sc_uint<5>> selected_read2;
-  sc_signal<bool> pcWrite, if_id_write, mux_controle_sel;
-  sc_signal<sc_int<32>> ext_immidiate, b_reg_result1, b_reg_result2;
+  // --- Sinais de Saída da Unidade de Controle ---
+  sc_signal<bool> isJump;                            // '1' se a instrução for um desvio.
+  sc_signal<bool> regWrite;                          // '1' para habilitar a escrita no banco de registradores (estágio WB).
+  sc_signal<bool> op2Sel;                            // Seleciona o segundo operando da ULA (registrador ou imediato).
+  sc_signal<bool> dataRead;                          // '1' para ler da memória de dados.
+  sc_signal<bool> dataWrite;                         // '1' para escrever na memória de dados.
+  sc_signal<bool> memToReg;                          // Seleciona se o dado para o registrador vem da ULA ou da memória.
+  sc_signal<bool> regSel;                            // Seleciona o campo do registrador de destino (rd ou rt).
+  sc_signal<sc_uint<11>> opUla;                      // Código da operação para a ULA.
+  sc_signal<sc_uint<2>> flagSel;                     // Seleciona a condição para desvios condicionais (zero, negativo).
 
-  // Sinais de saída da parte de contole
-  sc_signal<bool> isJump, regWrite, op2Sel,
-    dataRead, dataWrite, memToReg, regSel;
-  sc_signal<sc_uint<11>> opUla;
-  sc_signal<sc_uint<2>> flagSel;
-
+  // --- Sinais de Controle após o MUX de Hazard (podem ser zerados) ---
   sc_signal<bool> isJump_out, regWrite_out, op2Sel_out,
     dataRead_out, dataWrite_out, memToReg_out, regSel_out;
   sc_signal<sc_uint<11>> opUla_out;
   sc_signal<sc_uint<2>> flagSel_out;
 
-  id_ex bar_id_ex{"bar_id_ex"};
-
-    sc_signal<bool> id_ex_isJump_out, id_ex_regWrite_out, id_ex_op2Sel_out,
+  // --- Registradores de Pipeline ID/EX ---
+  id_ex bar_id_ex{"bar_id_ex"};                      // Módulo do registrador de pipeline entre ID e EX.
+  // Sinais de saída do registrador ID/EX, passando informações para o estágio EX.
+  sc_signal<bool> id_ex_isJump_out, id_ex_regWrite_out, id_ex_op2Sel_out,
       id_ex_dataRead_out, id_ex_dataWrite_out, id_ex_memToReg_out;
-    sc_signal<sc_uint<11>> id_ex_opUla_out;
-    sc_signal<sc_uint<2>> id_ex_flagSel_out;
-    sc_signal<sc_int<32>> id_ex_read1_out, id_ex_read2_out, id_ex_immediate_out;
-    sc_signal<sc_uint<32>> id_ex_pc_out;
-    sc_signal<sc_uint<5>> id_ex_rd_out, id_ex_rt_out, id_ex_rs_out;
-    sc_signal<sc_uint<26>> id_ex_absolute_out;
+  sc_signal<sc_uint<11>> id_ex_opUla_out;
+  sc_signal<sc_uint<2>> id_ex_flagSel_out;
+  sc_signal<sc_int<32>> id_ex_read1_out, id_ex_read2_out, id_ex_immediate_out; // Dados dos registradores e imediato.
+  sc_signal<sc_uint<32>> id_ex_pc_out;               // Valor do PC.
+  sc_signal<sc_uint<5>> id_ex_rd_out, id_ex_rt_out, id_ex_rs_out; // Endereços dos registradores.
+  sc_signal<sc_uint<26>> id_ex_absolute_out;         // Endereço de desvio.
 
-  // Terceiro estágio
-  alu ula_ex{"ula_ex"};
+  // --- Terceiro Estágio (EX - Execução) ---
+  alu ula_ex{"ula_ex"};                              // Módulo da Unidade Lógica e Aritmética (ULA).
 
-  mux4<sc_int<32>> ula_src1_mux{"ula_src1_mux"};
-  sc_signal<sc_int<32>> ula_src1_mux_out;
+  // MUXes para a Unidade de Adiantamento (Forwarding)
+  mux4<sc_int<32>> ula_src1_mux{"ula_src1_mux"};     // MUX para o primeiro operando da ULA.
+  sc_signal<sc_int<32>> ula_src1_mux_out;            // Saída do MUX do primeiro operando.
 
-  mux4<sc_int<32>> ula_src2_mux{"ula_src2_mux"};
-  sc_signal<sc_int<32>> ula_src2_mux_out;
+  mux4<sc_int<32>> ula_src2_mux{"ula_src2_mux"};     // MUX para o segundo operando da ULA.
+  sc_signal<sc_int<32>> ula_src2_mux_out;            // Saída do MUX do segundo operando.
 
-  mux2<sc_int<32>> op2_mux{"op2_mux"};
+  mux2<sc_int<32>> op2_mux{"op2_mux"};               // MUX para selecionar entre o valor do registrador e o imediato como segundo operando.
 
-  forwarding_unit ex_unid_adiantamento{"ex_unid_adiantamento"};
-  sc_signal<sc_uint<2>> forwardA, forwardB;
+  forwarding_unit ex_unid_adiantamento{"ex_unid_adiantamento"}; // Módulo da unidade de adiantamento.
+  sc_signal<sc_uint<2>> forwardA, forwardB;          // Sinais de controle da unidade de adiantamento para os MUXes.
 
-  sc_signal<sc_int<32>> op2_mux_out;
-  sc_signal<sc_int<32>> ula_result_out;
-  sc_signal<bool> ula_zero_out, ula_negative_out;
+  sc_signal<sc_int<32>> op2_mux_out;                 // Saída do op2_mux, operando final para a ULA.
+  sc_signal<sc_int<32>> ula_result_out;              // Resultado da operação da ULA.
+  sc_signal<bool> ula_zero_out, ula_negative_out;    // Flags de status (zero, negativo) geradas pela ULA.
 
-  ex_mem bar_ex_mem{"bar_ex_mem"};
+  // --- Registradores de Pipeline EX/MEM ---
+  ex_mem bar_ex_mem{"bar_ex_mem"};                   // Módulo do registrador de pipeline entre EX e MEM.
+  // Sinais de saída do registrador EX/MEM, passando informações para o estágio MEM.
   sc_signal<bool> ex_mem_isJump_out, ex_mem_regWrite_out,
     ex_mem_dataRead_out, ex_mem_dataWrite_out, ex_mem_memToReg_out;
   sc_signal<sc_uint<2>> ex_mem_flagSel_out;
   sc_signal<sc_uint<32>> ex_mem_pc_out;
-  sc_signal<sc_int<32>> ex_mem_ula_result_out, ex_mem_reg_data_out;
-  sc_signal<bool> ex_mem_ula_zero_out, ex_mem_ula_negative_out;
+  sc_signal<sc_int<32>> ex_mem_ula_result_out;       // Resultado da ULA.
+  sc_signal<sc_int<32>> ex_mem_reg_data_out;         // Dado a ser escrito na memória (vindo de rt).
+  sc_signal<bool> ex_mem_ula_zero_out, ex_mem_ula_negative_out; // Flags da ULA.
   sc_signal<sc_uint<26>> ex_mem_absolute_out;
-  sc_signal<sc_uint<5>> ex_mem_rd_out;
+  sc_signal<sc_uint<5>> ex_mem_rd_out;               // Endereço do registrador de destino.
 
-  // Quarto estágio
-  data_memory mem_mem_dados{"mem_mem_dados"};
-  mux4<bool> mux_flag_sel{"mux_flag_sel"};
-  pc_end mem_pc_end{"mem_pc_end"};
-  and_port jump_gate{"gate_gate"};
-  mux2<sc_uint<32>> mux_pc_next_value{"mux_pc_next_value"};
+  // --- Quarto Estágio (MEM - Acesso à Memória) ---
+  data_memory mem_mem_dados{"mem_mem_dados"};        // Módulo da memória de dados.
+  mux4<bool> mux_flag_sel{"mux_flag_sel"};           // MUX para selecionar a condição de desvio (sempre, se zero, se negativo).
+  pc_end mem_pc_end{"mem_pc_end"};                   // Módulo para calcular o endereço de destino de um desvio absoluto.
+  and_port jump_gate{"gate_gate"};                   // Porta AND para determinar se um desvio deve ocorrer (isJump E condição).
+  mux2<sc_uint<32>> mux_pc_next_value{"mux_pc_next_value"}; // MUX que seleciona o próximo valor do PC (PC+4 ou endereço de desvio).
 
-  sc_signal<sc_int<32>> mem_dados_result_out;
-  sc_signal<sc_uint<32>> pc_end_result_out;
-  sc_signal<bool> mux_flag_sel_out;
-  sc_signal<bool> jump_gate_out;
-  sc_signal<sc_uint<32>> pc_next_value_out;
+  sc_signal<sc_int<32>> mem_dados_result_out;        // Dado lido da memória de dados.
+  sc_signal<sc_uint<32>> pc_end_result_out;          // Endereço de destino calculado para um desvio.
+  sc_signal<bool> mux_flag_sel_out;                  // Saída do MUX de seleção de flag de desvio.
+  sc_signal<bool> jump_gate_out;                     // Saída da porta AND, '1' se o desvio for tomado.
+  sc_signal<sc_uint<32>> pc_next_value_out;          // Valor final a ser carregado no PC no próximo ciclo.
 
-  // Quinto estágio
-  mem_wb bar_mem_wb{"bar_mem_wb"};
-  mux2<sc_int<32>> mux_mem_to_reg{"mux_mem_to_reg"};
+  // --- Quinto Estágio (WB - Write Back) e Registrador MEM/WB ---
+  mem_wb bar_mem_wb{"bar_mem_wb"};                   // Módulo do registrador de pipeline entre MEM e WB.
+  mux2<sc_int<32>> mux_mem_to_reg{"mux_mem_to_reg"}; // MUX que seleciona o dado a ser escrito de volta no banco de registradores.
 
+  // Sinais de saída do registrador MEM/WB, passando informações para o estágio WB.
   sc_signal<bool> mem_wb_regWrite_out, mem_wb_memToReg_out;
-  sc_signal<sc_uint<5>> mem_wb_rd_out;
-  sc_signal<sc_int<32>> mem_wb_ula_result_out, mem_wb_mem_data_out;
-  sc_signal<sc_int<32>> mux_mem_to_reg_out;
+  sc_signal<sc_uint<5>> mem_wb_rd_out;               // Endereço do registrador de destino.
+  sc_signal<sc_int<32>> mem_wb_ula_result_out;       // Resultado da ULA vindo do estágio anterior.
+  sc_signal<sc_int<32>> mem_wb_mem_data_out;         // Dado lido da memória vindo do estágio anterior.
+  sc_signal<sc_int<32>> mux_mem_to_reg_out;          // Saída do MUX, valor final a ser escrito no banco de registradores.
+
 
   void clock_gen() {
     while (true) {
@@ -594,7 +613,6 @@ SC_MODULE(test_cpu) {
 };
 
 int sc_main(int argc, char **argv) {
-
   test_cpu tb("tb");
   load(tb.mem_ins.mem, tb.mem_mem_dados.mem);
   sc_start();

@@ -32,5 +32,5 @@ export SYSTEMC_PATH="/usr/local/systemc"
 ## Testando o Processador
 O processador se encontra em `processor.cpp`. Para rodar o teste, executando com um arquivo com instruções, siga o exemplo:
 ```sh
-make run PROG=programs/test_sub.txt
+make run PROG=programs/sub_1.txt
 ```
