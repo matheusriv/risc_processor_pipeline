@@ -25,11 +25,11 @@ SC_MODULE(if_id) {
 };
 
 void if_id::process() {
-  read1.write(ifid_inst.d_out.read().range(25, 21));
-  read2.write(ifid_inst.d_out.read().range(20, 16));
-  write1.write(ifid_inst.d_out.read().range(15, 11));
-  immediate.write(static_cast<sc_int<16>>(ifid_inst.d_out.read().range(15, 0)));
-  absolute.write(ifid_pc.d_out.read().range(25, 0));
+  read1.write(ifid_inst.d_out.read().range(15, 11)); // rs
+  read2.write(ifid_inst.d_out.read().range(10, 6));  // rt
+  write1.write(ifid_inst.d_out.read().range(20, 16)); // rd
+  immediate.write(static_cast<sc_int<16>>(ifid_inst.d_out.read().range(31, 16)));
+  absolute.write(ifid_inst.d_out.read().range(31, 6)); 
 }
 
 if_id::if_id(sc_module_name name) : sc_module(name) {

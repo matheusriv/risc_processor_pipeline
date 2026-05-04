@@ -339,7 +339,7 @@ SC_MODULE(test_cpu) {
         //printIfId();
         //printIdEx();
         //printExMem();
-        //printMemWb();
+        printMemWb();
         //printParteControle();
         //printUnidAdiantamento();
         //printUnidDetecConflito();

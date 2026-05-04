@@ -58,11 +58,11 @@ SC_MODULE(control_unit) {
 };
 
 void control_unit::process() {
-  sc_uint<6> opcode = word.read().range(31, 26);
+  sc_uint<6> opcode = word.read().range(5, 0);
   sc_uint<2> type = opcode.range(5, 4);
 
-  if(type == OP_TYPES::R_TYPE) { // Tipo R
-    sc_uint<11> funct = word.read().range(10, 0);
+  if(type == OP_TYPES::R_TYPE) { // Tipo R (operacoes logicas e aritmeticas)
+    sc_uint<11> funct = word.read().range(31, 21);
     isJump.write(false);
     regWrite.write(true);
     op2Sel.write(OP2_SEL::RT);
@@ -89,7 +89,7 @@ void control_unit::process() {
         dataWrite.write(true);
         regSel.write(REG_SEL::WRITE_REG);
     }
-  } else if (type == OP_TYPES::J_TYPE) {
+  } else if (type == OP_TYPES::J_TYPE) { // Tipo J (desvios)
     sc_uint<2> spec = opcode.range(1, 0);
     isJump.write(true);
     dataWrite.write(false);
@@ -99,15 +99,20 @@ void control_unit::process() {
     else if(spec == J_TYPE_OP::IF_ZERO) flagSel.write(FLAG_SEL::ZERO);
     else flagSel.write(FLAG_SEL::NEG);
 
-  } else if (type == OP_TYPES::I_TYPE) { // addi
+  } else if (type == OP_TYPES::I_TYPE) { // instrucoes imediatas
     isJump.write(false);
     regWrite.write(true);
     op2Sel.write(OP2_SEL::IMEDIATE);
-    opUla.write(ALUOP::ADD);
     dataRead.write(false);
     dataWrite.write(false);
     regSel.write(REG_SEL::READ2_REG);
     memToReg.write(MEM_TO_REG::ULA_RESULT);
+
+    if (opcode == 1) opUla.write(ALUOP::ADD);      // addi
+    else if (opcode == 2) opUla.write(ALUOP::AND); // andi
+    else if (opcode == 3) opUla.write(ALUOP::OR);  // ori
+    else if (opcode == 4) opUla.write(ALUOP::XOR); // xori
+    else opUla.write(ALUOP::ADD);
   } else {
     isJump.write(false);
     regWrite.write(false);

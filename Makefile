@@ -24,17 +24,16 @@ build/processor: processor.cpp $(SRC) | build
 run-processor: build/processor
 	$(LDLIBPATH) $<
 
-run: src/loader/loader
+run: build/loader
 	@if [ -z "$(PROG)" ]; then \
 		echo "Erro: Especifique o programa com PROG. Exemplo: make run PROG=programs/test_sub.txt"; \
 		exit 1; \
 	fi
-	./src/loader/loader $(PROG)
+	./build/loader $(PROG)
 	$(MAKE) run-processor
 
 clean:
 	rm -rf build
-	rm -f src/loader/loader
 
-src/loader/loader: src/loader/loader.cpp
+build/loader: src/loader/loader.cpp | build
 	$(CXX) $(CXXFLAGS) $< $(LDFLAGS) -o $@

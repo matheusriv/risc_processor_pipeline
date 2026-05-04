@@ -19,7 +19,7 @@ vector<string> memory_instructions = {
 };
 
 vector<string> immediate_instructions = {
-    "addi"
+    "addi", "andi", "ori", "xori"
 };
 
 bool is_logical_instruction(const string& instruction) {
@@ -119,41 +119,55 @@ int main(int argc, char* argv[]) {
                 uint rd = parse_operand(s_rd);
                 uint rs = parse_operand(s_rs);
                 uint rt = parse_operand(s_rt);
-                palavra.append(bitset<6>{0b010000}.to_string());
+                palavra.append(bitset<11>{get_funct(instruc)}.to_string());
+                palavra.append(bitset<5>{rd}.to_string());
                 palavra.append(bitset<5>{rs}.to_string());
                 palavra.append(bitset<5>{rt}.to_string());
-                palavra.append(bitset<5>{rd}.to_string());
-                palavra.append(bitset<11>{get_funct(instruc)}.to_string());
+                palavra.append(bitset<6>{0b010000}.to_string());
             } else if (is_jump_instruction(instruc)) {
                 string s_imm;
                 iss >> s_imm;
                 uint immediate = parse_operand(s_imm);
-                palavra.append(bitset<6>{0b110000}.to_string());
                 palavra.append(bitset<26>{immediate}.to_string());
+                if (instruc == "j") {
+                    palavra.append(bitset<6>{0b110000}.to_string());
+                } else if (instruc == "jz") {
+                    palavra.append(bitset<6>{0b110001}.to_string());
+                } else if (instruc == "jn") {
+                    palavra.append(bitset<6>{0b110010}.to_string());
+                }
             } else if (is_memory_instruction(instruc)) {
                 string s_rt, s_rs, s_imm;
                 iss >> s_rt >> s_rs >> s_imm;
                 int rt = parse_operand(s_rt);
                 int rs = parse_operand(s_rs);
                 int immediate = parse_operand(s_imm);
+                palavra.append(bitset<16>(immediate).to_string());
+                palavra.append(bitset<5>(rs).to_string());
+                palavra.append(bitset<5>(rt).to_string());
                 if (instruc == "ld") {
                     palavra.append(bitset<6>{0b100000}.to_string());
                 } else if (instruc == "st") {
                     palavra.append(bitset<6>{0b100001}.to_string());
                 }
-                palavra.append(bitset<5>(rs).to_string());
-                palavra.append(bitset<5>(rt).to_string());
-                palavra.append(bitset<16>(immediate).to_string());
             } else if (is_immediate_instruction(instruc)) {
                 string s_rt, s_rs, s_imm;
                 iss >> s_rt >> s_rs >> s_imm;
                 uint rt = parse_operand(s_rt);
                 uint rs = parse_operand(s_rs);
                 uint immediate = parse_operand(s_imm);
-                palavra.append(bitset<6>{0b000001}.to_string());
+                palavra.append(bitset<16>{immediate}.to_string());
                 palavra.append(bitset<5>{rs}.to_string());
                 palavra.append(bitset<5>{rt}.to_string());
-                palavra.append(bitset<16>{immediate}.to_string());
+                if (instruc == "addi") {
+                    palavra.append(bitset<6>{0b000001}.to_string());
+                } else if (instruc == "andi") {
+                    palavra.append(bitset<6>{0b000010}.to_string());
+                } else if (instruc == "ori") {
+                    palavra.append(bitset<6>{0b000011}.to_string());
+                } else if (instruc == "xori") {
+                    palavra.append(bitset<6>{0b000100}.to_string());
+                }
             }
 
             for(int i=0; i<palavra.size(); i+=8) {
