@@ -12,7 +12,7 @@ enum OP2_SEL {
 enum FLAG_SEL {
     VCC,
     ZERO,
-    NEG,
+    NOT_ZERO,
     EARTH,
 };
 
@@ -36,7 +36,7 @@ enum S_TYPE_OP {
 enum J_TYPE_OP {
     ABSOLUTE,
     IF_ZERO,
-    IF_NEG
+    IF_NOT_ZERO
 };
 
 enum REG_SEL {
@@ -94,10 +94,12 @@ void control_unit::process() {
     isJump.write(true);
     dataWrite.write(false);
     regWrite.write(false);
+    op2Sel.write(OP2_SEL::RT);
+    opUla.write(ALUOP::SUB);
 
     if(spec == J_TYPE_OP::ABSOLUTE) flagSel.write(FLAG_SEL::VCC);
     else if(spec == J_TYPE_OP::IF_ZERO) flagSel.write(FLAG_SEL::ZERO);
-    else flagSel.write(FLAG_SEL::NEG);
+    else flagSel.write(FLAG_SEL::NOT_ZERO);
 
   } else if (type == OP_TYPES::I_TYPE) { // instrucoes imediatas
     isJump.write(false);

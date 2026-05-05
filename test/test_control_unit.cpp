@@ -30,19 +30,36 @@ SC_MODULE(test_control_unit) {
   }
 
   void test() {
-    sc_uint<32> r_type = "010000_00010_00100_00001_00000000000"_u32;
-    sc_uint<32> s_type_read = "100000_00010_00100_0000000000000000"_u32;
-    sc_uint<32> s_type_write = "100001_00010_00100_0000000000000000"_u32;
-    sc_uint<32> jump = "110000_00000000000000000000000000"_u32;
-    sc_uint<32> jump_zero = "110001_00000000000000000000000000"_u32;
-    sc_uint<32> jump_neg = "110010_00010001000000000000000000"_u32;
+    sc_uint<32> r_type =       "00000000000_00001_00100_00010_010000"_u32;
+    sc_uint<32> s_type_read =  "0000000000000000_00100_00010_100000"_u32;
+    sc_uint<32> s_type_write = "0000000000000000_00100_00010_100001"_u32;
+    sc_uint<32> jump =         "00000000000000000000000000_110000"_u32;
+    sc_uint<32> i_type_addi =  "0000000000000000_00100_00010_000001"_u32;
+    sc_uint<32> i_type_andi =  "0000000000000000_00100_00010_000010"_u32;
 
+    // Esperado: isJump=0, regWrite=1, op2Sel=0 (Registrador), dataRead=0, dataWrite=0, memToReg=0 (Dado da ULA), regSel=1 (Usa rd)
+    std::cout << "Teste 1: R-Type (ex: add, sub, and) - Opcode 010000" << std::endl;
     print_signals(r_type);
+
+    // Esperado: isJump=0, regWrite=1, op2Sel=1 (Imediato para offset), dataRead=1, dataWrite=0, memToReg=1 (Dado da Memória), regSel=0 (Usa rt)
+    std::cout << "Teste 2: S-Type Read / Load (ld) - Opcode 100000" << std::endl;
     print_signals(s_type_read);
+
+    // Esperado: isJump=0, regWrite=0, op2Sel=1 (Imediato para offset), dataRead=0, dataWrite=1, memToReg=0 (Don't care)
+    std::cout << "Teste 3: S-Type Write / Store (st) - Opcode 100001" << std::endl;
     print_signals(s_type_write);
+
+    // Esperado: isJump=1, regWrite=0, dataWrite=0, flagSel=0 (Jump incondicional)
+    std::cout << "Teste 4: Jump incondicional (j) - Opcode 110000" << std::endl;
     print_signals(jump);
-    print_signals(jump_zero);
-    print_signals(jump_neg);
+
+    // Esperado: isJump=0, regWrite=1, op2Sel=1 (Usa imediato), dataRead=0, dataWrite=0, memToReg=0 (Dado da ULA), regSel=0 (Usa rt)
+    std::cout << "Teste 5: I-Type Add Immediato (addi) - Opcode 000001" << std::endl;
+    print_signals(i_type_addi);
+
+    // Esperado: Semelhante ao addi (muda apenas os sinais do opUla interno)
+    std::cout << "Teste 6: I-Type And Lógico Immediato (andi) - Opcode 000010" << std::endl;
+    print_signals(i_type_andi);
 
     sc_stop();
   }

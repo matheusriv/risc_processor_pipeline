@@ -8,6 +8,7 @@
 
 SC_MODULE(ex_mem) {
   sc_in<bool> clk;
+  sc_in<bool> rst;
   sc_in<bool> earth, vcc;
 
   sc_in<bool> isJump, regWrite,
@@ -58,7 +59,7 @@ SC_MODULE(ex_mem) {
 
 void ex_mem::connect_flip_flop_d(flip_flop_d &ff, sc_in<bool> &in, sc_out<bool> &out) {
   ff.clk(clk);
-  ff.rst(earth);
+  ff.rst(rst);
   ff.a(in);
   ff.b(out);
   ff.we(vcc);
@@ -67,7 +68,7 @@ void ex_mem::connect_flip_flop_d(flip_flop_d &ff, sc_in<bool> &in, sc_out<bool> 
 template<int N>
 void ex_mem::connect_register(reg<N> &reg, sc_in<sc_uint<N>> &in, sc_out<sc_uint<N>> &out) {
   reg.clk(clk);
-  reg.rst(earth);
+  reg.rst(rst);
   reg.we(vcc);
   reg.d_in(in);
   reg.d_out(out);
@@ -76,7 +77,7 @@ void ex_mem::connect_register(reg<N> &reg, sc_in<sc_uint<N>> &in, sc_out<sc_uint
 template<int N>
 void ex_mem::connect_register(register_int<N> &reg, sc_in<sc_int<N>> &in, sc_out<sc_int<N>> &out) {
   reg.clk(clk);
-  reg.rst(earth);
+  reg.rst(rst);
   reg.we(vcc);
   reg.d_in(in);
   reg.d_out(out);

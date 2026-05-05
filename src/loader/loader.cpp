@@ -11,7 +11,7 @@ vector<string> logical_instructions = {
 };
 
 vector<string> jump_instructions = {
-    "j", "jz", "jn"
+    "j", "beq", "bne"
 };
 
 vector<string> memory_instructions = {
@@ -86,6 +86,10 @@ string output =
 
 int main(int argc, char* argv[]) {
     ifstream file(argv[1]);
+    if (!file.is_open()) {
+        cerr << "Erro: Nao foi possivel abrir o arquivo '" << argv[1] << "'!" << endl;
+        return 1;
+    }
 
     string token;
     bool isData = true;
@@ -125,16 +129,26 @@ int main(int argc, char* argv[]) {
                 palavra.append(bitset<5>{rt}.to_string());
                 palavra.append(bitset<6>{0b010000}.to_string());
             } else if (is_jump_instruction(instruc)) {
-                string s_imm;
-                iss >> s_imm;
-                uint immediate = parse_operand(s_imm);
-                palavra.append(bitset<26>{immediate}.to_string());
                 if (instruc == "j") {
+                    string s_imm;
+                    iss >> s_imm;
+                    uint immediate = parse_operand(s_imm);
+                    palavra.append(bitset<26>{immediate}.to_string());
                     palavra.append(bitset<6>{0b110000}.to_string());
-                } else if (instruc == "jz") {
-                    palavra.append(bitset<6>{0b110001}.to_string());
-                } else if (instruc == "jn") {
-                    palavra.append(bitset<6>{0b110010}.to_string());
+                } else if (instruc == "beq" || instruc == "bne") {
+                    string s_rs, s_rt, s_imm;
+                    iss >> s_rs >> s_rt >> s_imm;
+                    uint rs = parse_operand(s_rs);
+                    uint rt = parse_operand(s_rt);
+                    uint immediate = parse_operand(s_imm);
+                    palavra.append(bitset<16>{immediate}.to_string());
+                    palavra.append(bitset<5>{rs}.to_string());
+                    palavra.append(bitset<5>{rt}.to_string());
+                    if (instruc == "beq") {
+                        palavra.append(bitset<6>{0b110001}.to_string());
+                    } else if (instruc == "bne") {
+                        palavra.append(bitset<6>{0b110010}.to_string());
+                    }
                 }
             } else if (is_memory_instruction(instruc)) {
                 string s_rt, s_rs, s_imm;

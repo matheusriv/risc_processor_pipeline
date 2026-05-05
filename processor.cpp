@@ -133,6 +133,9 @@ SC_MODULE(test_cpu) {
   sc_signal<bool> mux_flag_sel_out;                  // Saída do MUX de seleção de flag de desvio.
   sc_signal<bool> jump_gate_out;                     // Saída da porta AND, '1' se o desvio for tomado.
   sc_signal<sc_uint<32>> pc_next_value_out;          // Valor final a ser carregado no PC no próximo ciclo.
+  sc_signal<bool> ex_mem_ula_not_zero_out;           // Flag Zero invertida (BNE).
+  sc_signal<sc_uint<32>> actual_branch_target;       // O endereço ajustado (16 ou 26 bits) do desvio.
+  sc_signal<bool> final_pc_write;                    // Sinal final que libera escrita no PC.
 
   // --- Quinto Estágio (WB - Write Back) e Registrador MEM/WB ---
   mem_wb bar_mem_wb{"bar_mem_wb"};                   // Módulo do registrador de pipeline entre MEM e WB.
@@ -145,7 +148,6 @@ SC_MODULE(test_cpu) {
   sc_signal<sc_int<32>> mem_wb_mem_data_out;         // Dado lido da memória vindo do estágio anterior.
   sc_signal<sc_int<32>> mux_mem_to_reg_out;          // Saída do MUX, valor final a ser escrito no banco de registradores.
 
-
   void clock_gen() {
     while (true) {
       clk.write(false);
@@ -155,199 +157,258 @@ SC_MODULE(test_cpu) {
     }
   }
 
-    void printContadorDePrograma() {
-        std::cout << "Sinais do PC:\n";
-        std::cout << "\tPC.we: " << pcWrite.read() << std::endl;
-        std::cout << "\tPC.rst: " << resetPc.read() << std::endl;
-        std::cout << "\tPC.d_in: " << std::dec << pc_next_value_out.read() << std::endl;
-        std::cout << "\tPC.d_out: " << std::dec << pcCurrValue.read() << std::endl;
-    }
+  void calc_not_zero() {
+      ex_mem_ula_not_zero_out.write(!ex_mem_ula_zero_out.read());
+  }
 
-    void printMemoriaDeInstrucoes() {
-        std::cout << "Memoria de Instrucoes:\n";
-        std::cout << "\tMEM_INS.endereco: " << std::hex << "0x" << pcCurrValue.read() << std::endl;
-        std::cout << "\tMEM_INS.palavra: " << "0b" << std::bitset<32>{palavra.read()} << std::endl;
-    }
+  void calc_actual_target() {
+      if (ex_mem_flagSel_out.read() == 0) { // Se for j, flagSel == VCC == 0
+          actual_branch_target.write(ex_mem_absolute_out.read());
+      } else { // Se for beq ou bne
+          actual_branch_target.write(ex_mem_absolute_out.read() >> 10);
+      }
+  }
 
-    void printIfId() {
-        std::cout << "IF/ID:\n";
-        std::cout << "\tEntradas:\n";
-        std::cout << "\t\t.rst: " << jump_gate_out.read() << std::endl;
-        std::cout << "\t\t.write: " << if_id_write.read() << std::endl;
-        std::cout << "\t\t.pc: " << std::hex << "0x" << pcCurrValue.read() << std::endl;
-        std::cout << "\t\t.instrucao: " << "0b" << std::bitset<32>{palavra.read()} << std::endl;
-        std::cout << "\tSaídas:\n";
-        std::cout << "\t\t.pc: " << std::hex << "0x" << ifid_pc_saida.read() << std::endl;
-        std::cout << "\t\t.instrucao: " << "0b" << std::bitset<32>{ifid_inst_saida.read()} << std::endl;
-        std::cout << "\t\t.read1: " << read1.read() << std::endl;
-        std::cout << "\t\t.read2: " << read2.read() << std::endl;
-        std::cout << "\t\t.write1: " << write1.read() << std::endl;
-        std::cout << "\t\t.immediate: " << immediate.read() << std::endl;
-        std::cout << "\t\t.absolute: " << absolute.read() << std::endl;
-    }
+  // Impede que um falso conflito congele o PC quando um salto for tomado
+  void calc_pc_write() {
+      final_pc_write.write(pcWrite.read() | jump_gate_out.read());
+  }
 
-    void printIdEx() {
-        std::cout << "ID/EX:\n";
-        std::cout << "\tEntradas:\n";
-        std::cout << "\t\t.rst: " << jump_gate_out.read() << std::endl;
-        std::cout << "\t\t.isJump: " << isJump_out.read() << std::endl;
-        std::cout << "\t\t.regWrite: " << regWrite_out.read() << std::endl;
-        std::cout << "\t\t.op2Sel: " << op2Sel_out.read() << std::endl;
-        std::cout << "\t\t.dataRead: " << dataRead_out.read() << std::endl;
-        std::cout << "\t\t.dataWrite: " << dataWrite_out.read() << std::endl;
-        std::cout << "\t\t.memToReg: " << memToReg_out.read() << std::endl;
-        std::cout << "\t\t.opUla: " << opUla_out.read() << std::endl;
-        std::cout << "\t\t.flagSel: " << flagSel_out.read() << std::endl;
-        std::cout << "\t\t.read1: " << b_reg_result1.read() << std::endl;
-        std::cout << "\t\t.read2: " << b_reg_result2.read() << std::endl;
-        std::cout << "\t\t.immediate: " << ext_immidiate.read() << std::endl;
-        std::cout << "\t\t.pc: " << ifid_pc_saida.read() << std::endl;
-        std::cout << "\t\t.rd: " << write1.read() << std::endl;
-        std::cout << "\t\t.rt: " << read1.read() << std::endl;
-        std::cout << "\t\t.rs: " << read2.read() << std::endl;
-        std::cout << "\t\t.absolute: "  << "0b" << (std::bitset<26>{absolute.read()}) << std::endl;
-        std::cout << "\tSaídas:\n";
-        std::cout << "\t\t.isJump: " << id_ex_isJump_out.read() << std::endl;
-        std::cout << "\t\t.regWrite: " << id_ex_regWrite_out.read() << std::endl;
-        std::cout << "\t\t.op2Sel: " << id_ex_op2Sel_out.read() << std::endl;
-        std::cout << "\t\t.dataRead: " << id_ex_dataRead_out.read() << std::endl;
-        std::cout << "\t\t.dataWrite: " << id_ex_dataWrite_out.read() << std::endl;
-        std::cout << "\t\t.memToReg: " << id_ex_memToReg_out.read() << std::endl;
-        std::cout << "\t\t.opUla: " << id_ex_opUla_out.read() << std::endl;
-        std::cout << "\t\t.flagSel: " << id_ex_flagSel_out.read() << std::endl;
-        std::cout << "\t\t.read1: " << id_ex_read1_out.read() << std::endl;
-        std::cout << "\t\t.read2: " << id_ex_read2_out.read() << std::endl;
-        std::cout << "\t\t.immediate: " << id_ex_immediate_out.read() << std::endl;
-        std::cout << "\t\t.pc: " << id_ex_pc_out.read() << std::endl;
-        std::cout << "\t\t.rd: " << id_ex_rd_out.read() << std::endl;
-        std::cout << "\t\t.rt: " << id_ex_rt_out.read() << std::endl;
-        std::cout << "\t\t.rs: " << id_ex_rs_out.read() << std::endl;
-        std::cout << "\t\t.absolute: "  << "0b" << (std::bitset<26>{id_ex_absolute_out.read()}) << std::endl;
-    }
+  void printProgramCounter() {
+      std::cout << "Sinais do PC:\n";
+      std::cout << "\tPC.we: " << pcWrite.read() << std::endl;
+      std::cout << "\tPC.rst: " << resetPc.read() << std::endl;
+      std::cout << "\tPC.d_in: " << std::dec << pc_next_value_out.read() << std::endl;
+      std::cout << "\tPC.d_out: " << std::dec << pcCurrValue.read() << std::endl;
+  }
 
-    void printExMem() {
-        std::cout << "EX/MEM:\n";
-        std::cout << "\tEntradas:\n";
-        std::cout << "\t\t.isJump: " << id_ex_isJump_out.read() << std::endl;
-        std::cout << "\t\t.regWrite: " << id_ex_regWrite_out.read() << std::endl;
-        std::cout << "\t\t.dataRead: " << id_ex_dataRead_out.read() << std::endl;
-        std::cout << "\t\t.dataWrite: " << id_ex_dataWrite_out.read() << std::endl;
-        std::cout << "\t\t.memToReg: " << id_ex_memToReg_out.read() << std::endl;
-        std::cout << "\t\t.flagSel: "  << id_ex_flagSel_out.read()  << std::endl;
-        std::cout << "\t\t.ula_zero: "  << ula_zero_out.read()  << std::endl;
-        std::cout << "\t\t.ula_negative: "  << ula_negative_out.read()  << std::endl;
-        std::cout << "\t\t.ula_result: "  << ula_result_out.read()  << std::endl;
-        std::cout << "\t\t.reg_data: "  << id_ex_read2_out.read()  << std::endl;
-        std::cout << "\t\t.pc: "  << id_ex_pc_out.read()  << std::endl;
-        std::cout << "\t\t.absolute: "  << id_ex_absolute_out.read()  << std::endl;
-        std::cout << "\t\t.rd: "  << id_ex_rd_out.read()  << std::endl;
-        std::cout << "\tSaídas:\n";
-        std::cout << "\t\t.isJump: " << ex_mem_isJump_out.read() << std::endl;
-        std::cout << "\t\t.regWrite: " << ex_mem_regWrite_out.read() << std::endl;
-        std::cout << "\t\t.dataRead: " << ex_mem_dataRead_out.read() << std::endl;
-        std::cout << "\t\t.dataWrite: " << ex_mem_dataWrite_out.read() << std::endl;
-        std::cout << "\t\t.memToReg: " << ex_mem_memToReg_out.read() << std::endl;
-        std::cout << "\t\t.flagSel: "  << ex_mem_flagSel_out.read()  << std::endl;
-        std::cout << "\t\t.ula_zero: "  << ex_mem_ula_zero_out.read()  << std::endl;
-        std::cout << "\t\t.ula_negative: "  << ex_mem_ula_negative_out.read()  << std::endl;
-        std::cout << "\t\t.ula_result: "  << ex_mem_ula_result_out.read()  << std::endl;
-        std::cout << "\t\t.reg_data: "  << ex_mem_reg_data_out.read()  << std::endl;
-        std::cout << "\t\t.pc: "  << ex_mem_pc_out.read()  << std::endl;
-        std::cout << "\t\t.absolute: "  << ex_mem_absolute_out.read()  << std::endl;
-        std::cout << "\t\t.rd: "  << ex_mem_rd_out.read()  << std::endl;
-    }
+  void printInstructionMemory() {
+      std::cout << "Memoria de Instrucoes:\n";
+      std::cout << "\tMEM_INS.endereco: " << std::hex << "0x" << pcCurrValue.read() << std::endl;
+      std::cout << "\tMEM_INS.palavra: " << "0b" << std::bitset<32>{palavra.read()} << std::endl;
+  }
 
-    void printMemWb() {
-        std::cout << "MEM/WB:\n";
-        std::cout << "\tEntradas:\n";
-        std::cout << "\t\t.regWrite: " << ex_mem_regWrite_out.read() << std::endl;
-        std::cout << "\t\t.memToReg: " << ex_mem_memToReg_out.read() << std::endl;
-        std::cout << "\t\t.ula_result: " << ex_mem_ula_result_out.read() << std::endl;
-        std::cout << "\t\t.mem_data: " << mem_dados_result_out.read() << std::endl;
-        std::cout << "\t\t.rd: "  << ex_mem_rd_out.read()  << std::endl;
-        std::cout << "\tSaídas:\n";
-        std::cout << "\t\t.regWrite: " << mem_wb_regWrite_out.read() << std::endl;
-        std::cout << "\t\t.memToReg: " << mem_wb_memToReg_out.read() << std::endl;
-        std::cout << "\t\t.ula_result: " << mem_wb_ula_result_out.read() << std::endl;
-        std::cout << "\t\t.mem_data: " << mem_wb_mem_data_out.read() << std::endl;
-        std::cout << "\t\t.rd: "  << mem_wb_rd_out.read()  << std::endl;
-    }
+  void printIfId() {
+      std::cout << "IF/ID:\n";
+      std::cout << "\tEntradas:\n";
+      std::cout << "\t\t.rst: " << jump_gate_out.read() << std::endl;
+      std::cout << "\t\t.write: " << if_id_write.read() << std::endl;
+      std::cout << "\t\t.pc: " << std::hex << "0x" << pcCurrValue.read() << std::endl;
+      std::cout << "\t\t.instrucao: " << "0b" << std::bitset<32>{palavra.read()} << std::endl;
+      std::cout << "\tSaídas:\n";
+      std::cout << "\t\t.pc: " << std::hex << "0x" << ifid_pc_saida.read() << std::endl;
+      std::cout << "\t\t.instrucao: " << "0b" << std::bitset<32>{ifid_inst_saida.read()} << std::endl;
+      std::cout << "\t\t.read1: " << read1.read() << std::endl;
+      std::cout << "\t\t.read2: " << read2.read() << std::endl;
+      std::cout << "\t\t.write1: " << write1.read() << std::endl;
+      std::cout << "\t\t.immediate: " << immediate.read() << std::endl;
+      std::cout << "\t\t.absolute: " << absolute.read() << std::endl;
+  }
 
-    void printParteControle() {
-        std::cout << "Parte Controle:\n";
-        std::cout << "\tEntradas:\n";
-        std::cout << "\t\t.instrucao: " << "0b" << std::bitset<32>{ifid_inst_saida.read()} << std::endl;
-        std::cout << "\tSaídas:\n";
-        std::cout << "\t\t.isJump: " << isJump.read() << std::endl;
-        std::cout << "\t\t.regWrite: " << regWrite.read() << std::endl;
-        std::cout << "\t\t.op2Sel: " << op2Sel.read() << std::endl;
-        std::cout << "\t\t.dataRead: " << dataRead.read() << std::endl;
-        std::cout << "\t\t.dataWrite: " << dataWrite.read() << std::endl;
-        std::cout << "\t\t.memToReg: "  << memToReg.read()  << std::endl;
-        std::cout << "\t\t.opUla: "  << opUla.read()  << std::endl;
-        std::cout << "\t\t.flagSel: "  << flagSel.read()  << std::endl;
-        std::cout << "\t\t.regSel: "  << regSel.read()  << std::endl;
-    }
+  void printIdEx() {
+      std::cout << "ID/EX:\n";
+      std::cout << "\tEntradas:\n";
+      std::cout << "\t\t.rst: " << jump_gate_out.read() << std::endl;
+      std::cout << "\t\t.isJump: " << isJump_out.read() << std::endl;
+      std::cout << "\t\t.regWrite: " << regWrite_out.read() << std::endl;
+      std::cout << "\t\t.op2Sel: " << op2Sel_out.read() << std::endl;
+      std::cout << "\t\t.dataRead: " << dataRead_out.read() << std::endl;
+      std::cout << "\t\t.dataWrite: " << dataWrite_out.read() << std::endl;
+      std::cout << "\t\t.memToReg: " << memToReg_out.read() << std::endl;
+      std::cout << "\t\t.opUla: " << opUla_out.read() << std::endl;
+      std::cout << "\t\t.flagSel: " << flagSel_out.read() << std::endl;
+      std::cout << "\t\t.read1: " << b_reg_result1.read() << std::endl;
+      std::cout << "\t\t.read2: " << b_reg_result2.read() << std::endl;
+      std::cout << "\t\t.immediate: " << ext_immidiate.read() << std::endl;
+      std::cout << "\t\t.pc: " << ifid_pc_saida.read() << std::endl;
+      std::cout << "\t\t.rd: " << write1.read() << std::endl;
+      std::cout << "\t\t.rt: " << read1.read() << std::endl;
+      std::cout << "\t\t.rs: " << read2.read() << std::endl;
+      std::cout << "\t\t.absolute: "  << "0b" << (std::bitset<26>{absolute.read()}) << std::endl;
+      std::cout << "\tSaídas:\n";
+      std::cout << "\t\t.isJump: " << id_ex_isJump_out.read() << std::endl;
+      std::cout << "\t\t.regWrite: " << id_ex_regWrite_out.read() << std::endl;
+      std::cout << "\t\t.op2Sel: " << id_ex_op2Sel_out.read() << std::endl;
+      std::cout << "\t\t.dataRead: " << id_ex_dataRead_out.read() << std::endl;
+      std::cout << "\t\t.dataWrite: " << id_ex_dataWrite_out.read() << std::endl;
+      std::cout << "\t\t.memToReg: " << id_ex_memToReg_out.read() << std::endl;
+      std::cout << "\t\t.opUla: " << id_ex_opUla_out.read() << std::endl;
+      std::cout << "\t\t.flagSel: " << id_ex_flagSel_out.read() << std::endl;
+      std::cout << "\t\t.read1: " << id_ex_read1_out.read() << std::endl;
+      std::cout << "\t\t.read2: " << id_ex_read2_out.read() << std::endl;
+      std::cout << "\t\t.immediate: " << id_ex_immediate_out.read() << std::endl;
+      std::cout << "\t\t.pc: " << id_ex_pc_out.read() << std::endl;
+      std::cout << "\t\t.rd: " << id_ex_rd_out.read() << std::endl;
+      std::cout << "\t\t.rt: " << id_ex_rt_out.read() << std::endl;
+      std::cout << "\t\t.rs: " << id_ex_rs_out.read() << std::endl;
+      std::cout << "\t\t.absolute: "  << "0b" << (std::bitset<26>{id_ex_absolute_out.read()}) << std::endl;
+  }
 
-    void printUnidAdiantamento() {
-        std::cout << "Unidade de Adiantamento:\n";
-        std::cout << "\tEntradas\n";
-        std::cout << "\t\tID_EX.rs: " << id_ex_rs_out.read() << std::endl;
-        std::cout << "\t\tID_EX.rt: " << id_ex_rt_out.read() << std::endl;
-        std::cout << "\t\tEX_MEM.rd: " << ex_mem_rd_out.read() << std::endl;
-        std::cout << "\t\tEX_MEM.RegWrite: " << ex_mem_regWrite_out.read() << std::endl;
-        std::cout << "\t\tMEM_WB.rd: " << mem_wb_rd_out.read() << std::endl;
-        std::cout << "\t\tMEM_WB.RegWrite: " << mem_wb_regWrite_out.read() << std::endl;
-        std::cout << "\tSaídas\n";
-        std::cout << "\t\tForwardA: " << forwardA.read() << std::endl;
-        std::cout << "\t\tForwardB: " << forwardB.read() << std::endl;
-    }
+  void printExMem() {
+      std::cout << "EX/MEM:\n";
+      std::cout << "\tEntradas:\n";
+      std::cout << "\t\t.isJump: " << id_ex_isJump_out.read() << std::endl;
+      std::cout << "\t\t.regWrite: " << id_ex_regWrite_out.read() << std::endl;
+      std::cout << "\t\t.dataRead: " << id_ex_dataRead_out.read() << std::endl;
+      std::cout << "\t\t.dataWrite: " << id_ex_dataWrite_out.read() << std::endl;
+      std::cout << "\t\t.memToReg: " << id_ex_memToReg_out.read() << std::endl;
+      std::cout << "\t\t.flagSel: "  << id_ex_flagSel_out.read()  << std::endl;
+      std::cout << "\t\t.ula_zero: "  << ula_zero_out.read()  << std::endl;
+      std::cout << "\t\t.ula_negative: "  << ula_negative_out.read()  << std::endl;
+      std::cout << "\t\t.ula_result: "  << ula_result_out.read()  << std::endl;
+      std::cout << "\t\t.reg_data: "  << id_ex_read2_out.read()  << std::endl;
+      std::cout << "\t\t.pc: "  << id_ex_pc_out.read()  << std::endl;
+      std::cout << "\t\t.absolute: "  << id_ex_absolute_out.read()  << std::endl;
+      std::cout << "\t\t.rd: "  << id_ex_rd_out.read()  << std::endl;
+      std::cout << "\tSaídas:\n";
+      std::cout << "\t\t.isJump: " << ex_mem_isJump_out.read() << std::endl;
+      std::cout << "\t\t.regWrite: " << ex_mem_regWrite_out.read() << std::endl;
+      std::cout << "\t\t.dataRead: " << ex_mem_dataRead_out.read() << std::endl;
+      std::cout << "\t\t.dataWrite: " << ex_mem_dataWrite_out.read() << std::endl;
+      std::cout << "\t\t.memToReg: " << ex_mem_memToReg_out.read() << std::endl;
+      std::cout << "\t\t.flagSel: "  << ex_mem_flagSel_out.read()  << std::endl;
+      std::cout << "\t\t.ula_zero: "  << ex_mem_ula_zero_out.read()  << std::endl;
+      std::cout << "\t\t.ula_negative: "  << ex_mem_ula_negative_out.read()  << std::endl;
+      std::cout << "\t\t.ula_result: "  << ex_mem_ula_result_out.read()  << std::endl;
+      std::cout << "\t\t.reg_data: "  << ex_mem_reg_data_out.read()  << std::endl;
+      std::cout << "\t\t.pc: "  << ex_mem_pc_out.read()  << std::endl;
+      std::cout << "\t\t.absolute: "  << ex_mem_absolute_out.read()  << std::endl;
+      std::cout << "\t\t.rd: "  << ex_mem_rd_out.read()  << std::endl;
+  }
 
-    void printUnidDetecConflito() {
-        std::cout << "Unidade de Detecção de Conflitos:\n";
-        std::cout << "\tEntradas\n";
-        std::cout << "\t\tIF_ID_rs: " << read1.read() << std::endl;
-        std::cout << "\t\tIF_ID_rt: " << read2.read() << std::endl;
-        std::cout << "\t\tID_EX_rt: " << id_ex_rt_out.read() << std::endl;
-        std::cout << "\t\tID_EX_MemRead: " << id_ex_dataRead_out.read() << std::endl;
-        std::cout << "\tSaídas\n";
-        std::cout << "\t\tPCWrite: " << pcWrite.read() << std::endl;
-        std::cout << "\t\tIF_ID_Write: " << if_id_write.read() << std::endl;
-        std::cout << "\t\tControlMux: " << mux_controle_sel.read() << std::endl;
-    }
+  void printMemWb() {
+      std::cout << "MEM/WB:\n";
+      std::cout << "\tEntradas:\n";
+      std::cout << "\t\t.regWrite: " << ex_mem_regWrite_out.read() << std::endl;
+      std::cout << "\t\t.memToReg: " << ex_mem_memToReg_out.read() << std::endl;
+      std::cout << "\t\t.ula_result: " << ex_mem_ula_result_out.read() << std::endl;
+      std::cout << "\t\t.mem_data: " << mem_dados_result_out.read() << std::endl;
+      std::cout << "\t\t.rd: "  << ex_mem_rd_out.read()  << std::endl;
+      std::cout << "\tSaídas:\n";
+      std::cout << "\t\t.regWrite: " << mem_wb_regWrite_out.read() << std::endl;
+      std::cout << "\t\t.memToReg: " << mem_wb_memToReg_out.read() << std::endl;
+      std::cout << "\t\t.ula_result: " << mem_wb_ula_result_out.read() << std::endl;
+      std::cout << "\t\t.mem_data: " << mem_wb_mem_data_out.read() << std::endl;
+      std::cout << "\t\t.rd: "  << mem_wb_rd_out.read()  << std::endl;
+  }
 
-    void printBancoReg() {
-        std::cout << "Banco de Registradores:\n";
-        std::cout << "\tEntradas:\n";
-        std::cout << "\t\t.regWrite: " << mem_wb_regWrite_out.read() << std::endl;
-        std::cout << "\t\t.rs1: " << read1.read() << std::endl;
-        std::cout << "\t\t.rs2: " << selected_read2.read() << std::endl;
-        std::cout << "\t\t.rd: " << mem_wb_rd_out.read() << std::endl;
-        std::cout << "\t\t.wd: " << mux_mem_to_reg_out.read() << std::endl;
-        std::cout << "\tSaídas:\n";
-        std::cout << "\t\t.rd1: " << b_reg_result1.read() << std::endl;
-        std::cout << "\t\t.rd2: " << b_reg_result2.read() << std::endl;
+  void printControlUnit() {
+      std::cout << "Parte Controle:\n";
+      std::cout << "\tEntradas:\n";
+      std::cout << "\t\t.instrucao: " << "0b" << std::bitset<32>{ifid_inst_saida.read()} << std::endl;
+      std::cout << "\tSaídas:\n";
+      std::cout << "\t\t.isJump: " << isJump.read() << std::endl;
+      std::cout << "\t\t.regWrite: " << regWrite.read() << std::endl;
+      std::cout << "\t\t.op2Sel: " << op2Sel.read() << std::endl;
+      std::cout << "\t\t.dataRead: " << dataRead.read() << std::endl;
+      std::cout << "\t\t.dataWrite: " << dataWrite.read() << std::endl;
+      std::cout << "\t\t.memToReg: "  << memToReg.read()  << std::endl;
+      std::cout << "\t\t.opUla: "  << opUla.read()  << std::endl;
+      std::cout << "\t\t.flagSel: "  << flagSel.read()  << std::endl;
+      std::cout << "\t\t.regSel: "  << regSel.read()  << std::endl;
+  }
+
+  void printForwardingUnit() {
+      std::cout << "Unidade de Adiantamento:\n";
+      std::cout << "\tEntradas\n";
+      std::cout << "\t\tID_EX.rs: " << id_ex_rs_out.read() << std::endl;
+      std::cout << "\t\tID_EX.rt: " << id_ex_rt_out.read() << std::endl;
+      std::cout << "\t\tEX_MEM.rd: " << ex_mem_rd_out.read() << std::endl;
+      std::cout << "\t\tEX_MEM.RegWrite: " << ex_mem_regWrite_out.read() << std::endl;
+      std::cout << "\t\tMEM_WB.rd: " << mem_wb_rd_out.read() << std::endl;
+      std::cout << "\t\tMEM_WB.RegWrite: " << mem_wb_regWrite_out.read() << std::endl;
+      std::cout << "\tSaídas\n";
+      std::cout << "\t\tForwardA: " << forwardA.read() << std::endl;
+      std::cout << "\t\tForwardB: " << forwardB.read() << std::endl;
+  }
+
+  void printHazardDetection() {
+      std::cout << "Unidade de Detecção de Conflitos:\n";
+      std::cout << "\tEntradas\n";
+      std::cout << "\t\tIF_ID_rs: " << read1.read() << std::endl;
+      std::cout << "\t\tIF_ID_rt: " << read2.read() << std::endl;
+      std::cout << "\t\tID_EX_rt: " << id_ex_rt_out.read() << std::endl;
+      std::cout << "\t\tID_EX_MemRead: " << id_ex_dataRead_out.read() << std::endl;
+      std::cout << "\tSaídas\n";
+      std::cout << "\t\tPCWrite: " << pcWrite.read() << std::endl;
+      std::cout << "\t\tIF_ID_Write: " << if_id_write.read() << std::endl;
+      std::cout << "\t\tControlMux: " << mux_controle_sel.read() << std::endl;
+  }
+
+  void printRegisterBank() {
+      std::cout << "Banco de Registradores:\n";
+      std::cout << "\tEntradas:\n";
+      std::cout << "\t\t.regWrite: " << mem_wb_regWrite_out.read() << std::endl;
+      std::cout << "\t\t.rs1: " << read1.read() << std::endl;
+      std::cout << "\t\t.rs2: " << selected_read2.read() << std::endl;
+      std::cout << "\t\t.rd: " << mem_wb_rd_out.read() << std::endl;
+      std::cout << "\t\t.wd: " << mux_mem_to_reg_out.read() << std::endl;
+      std::cout << "\tSaídas:\n";
+      std::cout << "\t\t.rd1: " << b_reg_result1.read() << std::endl;
+      std::cout << "\t\t.rd2: " << b_reg_result2.read() << std::endl;
+  }
+  
+  void printInstructionMemoryState(int num_instructions) {
+    std::cout << "\n--- Primeiras " << std::dec << num_instructions << " posições da Memória de Instruções ---" << std::endl;
+    // Como cada instrução tem 4 bytes, iteramos num_instructions * 4 vezes
+    for(int i = 0; i < num_instructions * 4; i += 4) {
+      std::cout << "Endereço " << std::dec << i << ": 0b" 
+                << std::bitset<8>(mem_ins.mem[i]) 
+                << std::bitset<8>(mem_ins.mem[i+1]) 
+                << std::bitset<8>(mem_ins.mem[i+2]) 
+                << std::bitset<8>(mem_ins.mem[i+3]) << std::endl;
     }
+  }
+
+  void printDataMemoryState(int num_positions) {
+    std::cout << "\n--- Primeiras " << std::dec << num_positions << " posições da Memória de Dados ---" << std::endl;
+    for(int i = 0; i < num_positions; i++) {
+      std::cout << "Endereço " << std::dec << i << ": " << mem_mem_dados.mem[i] << std::endl;
+    }
+  }
+
+  void printRegisterBankState() {
+    std::cout << "\n--- Estado do Banco de Registradores ---" << std::endl;
+    for(int i = 0; i < 32; i++) {
+      std::cout << "reg[" << std::dec << i << "]: " << b_reg.regs[i].read() << std::endl;
+    }
+  }
 
   // A cada ciclo de clock avança uma instrução
   void test() {
-    for(int i=0; i<15; i++) {
-        wait(CLOCK_SIZE_NS, SC_NS);
-        std::cout << "srt[" << std::dec << i << "]----------------------------------------" << std::endl;
-        //printContadorDePrograma();
-        //printMemoriaDeInstrucoes();
-        //printIfId();
-        //printIdEx();
-        //printExMem();
-        printMemWb();
-        //printParteControle();
-        //printUnidAdiantamento();
-        //printUnidDetecConflito();
-        //printBancoReg();
-        std::cout << "end[" << std::dec << i << "]---------------------------------------- Press enter to continue..." << std::endl;
-        cin.get();
+    printInstructionMemoryState(15);
+    std::cout << "\n" << std::endl;
+
+    bool auto_run = false;
+
+    for(int i=0; i<80; i++) {
+      wait(CLOCK_SIZE_NS, SC_NS);
+      std::cout << "clock[" << std::dec << i << "]---------------------------------------- start" << std::endl;
+      //printProgramCounter();
+      //printInstructionMemory();
+      //printIfId();
+      //printIdEx();
+      //printExMem();
+      //printMemWb();
+      //printControlUnit();
+      //printForwardingUnit();
+      //printHazardDetection();
+      //printRegisterBank();
+
+      if (!auto_run) {
+        std::cout << "clock[" << std::dec << i << "]---------------------------------------- end. Press Enter to next cycle or 'c' to auto-run..." << std::endl;
+        std::string input;
+        std::getline(std::cin, input);
+        if (input == "c" || input == "C") {
+          auto_run = true; // Ativa a execução automática para os próximos ciclos
+        }
+      } else {
+        std::cout << "clock[" << std::dec << i << "]---------------------------------------- end." << std::endl;
+      }
     }
 
+    printDataMemoryState(10);
+    printRegisterBankState();
 
     sc_stop();
   }
@@ -372,7 +433,7 @@ SC_MODULE(test_cpu) {
 
     pc.clk(clk);
     pc.rst(resetPc);
-    pc.we(pcWrite);
+    pc.we(final_pc_write);
     pc.d_in(pc_next_value_out);
     pc.d_out(pcCurrValue);
 
@@ -527,6 +588,7 @@ SC_MODULE(test_cpu) {
     ex_unid_adiantamento.ForwardB(forwardB);
 
     bar_ex_mem.clk(clk);
+    bar_ex_mem.rst(jump_gate_out);
     bar_ex_mem.earth(earth);
     bar_ex_mem.vcc(vcc);
     bar_ex_mem.isJump(id_ex_isJump_out);
@@ -572,7 +634,7 @@ SC_MODULE(test_cpu) {
     // ORDEM IMPORTA AQUI: consulte enum na parte de controle
     mux_flag_sel.a(vcc);
     mux_flag_sel.b(ex_mem_ula_zero_out);
-    mux_flag_sel.c(ex_mem_ula_negative_out);
+    mux_flag_sel.c(ex_mem_ula_not_zero_out);
     mux_flag_sel.d(earth);
     mux_flag_sel.out(mux_flag_sel_out);
 
@@ -582,7 +644,7 @@ SC_MODULE(test_cpu) {
 
     mux_pc_next_value.sel(jump_gate_out);
     mux_pc_next_value.a(inc_result_out);
-    mux_pc_next_value.b(pc_end_result_out);
+    mux_pc_next_value.b(actual_branch_target);
     mux_pc_next_value.out(pc_next_value_out);
 
     bar_mem_wb.clk(clk);
@@ -609,6 +671,15 @@ SC_MODULE(test_cpu) {
 
     SC_THREAD(clock_gen);
     SC_THREAD(test);
+
+    SC_METHOD(calc_not_zero);
+    sensitive << ex_mem_ula_zero_out;
+
+    SC_METHOD(calc_actual_target);
+    sensitive << ex_mem_flagSel_out << pc_end_result_out << ex_mem_absolute_out << ex_mem_isJump_out;
+
+    SC_METHOD(calc_pc_write);
+    sensitive << pcWrite << jump_gate_out;
   }
 };
 

@@ -26,7 +26,7 @@ run-processor: build/processor
 
 run: build/loader
 	@if [ -z "$(PROG)" ]; then \
-		echo "Erro: Especifique o programa com PROG. Exemplo: make run PROG=programs/test_sub.txt"; \
+		echo "Erro: Especifique o programa com PROG. Exemplo: make run PROG=programs/add_1.txt"; \
 		exit 1; \
 	fi
 	./build/loader $(PROG)
